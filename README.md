@@ -2,6 +2,8 @@
 
 ```Your AI content intern that never sleeps.```
 
+![Architecture](workflowimage.png)
+
 An AI-powered content automation system built with n8n, OpenAI, Reddit, Telegram, and Google Sheets that automatically discovers trending topics, generates platform-ready content, creates engaging visuals, manages approval workflows, and publishes content with minimal human intervention.
 #  Detailed Workflow Architecture
 
