@@ -1,0 +1,1666 @@
+{
+  "name": "Dume AI Content Pipeline v2",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "WORKFLOW 1: Topic Generation\nSchedule triggers daily at 9am.\nGenerates 5 trending topics → saves to Google Sheets → sends Telegram menu.\n\nSheet columns needed:\nid | topic | description | linkedin_post | instagram_caption | hashtags | image_prompt | status | created_at | image_generated | updated_at\n\nStatus flow:\ntopic_generated → content_generated → awaiting_image_approval → image_approved → posted",
+        "height": 200,
+        "width": 420,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -528,
+        -112
+      ],
+      "typeVersion": 1,
+      "id": "2a69d70b-4937-487b-a52a-53540faff507",
+      "name": "Note WF1"
+    },
+    {
+      "parameters": {
+        "content": "WORKFLOW 2: Topic Selection + Content Generation\nTelegram Trigger listens for numeric input (e.g. 1 or 1,3).\nLooks up topic from sheet by id → generates content → updates row → sends preview.\n\nKey fix: All data flows via Google Sheets using id as the single source of truth.\nNo more Merge node confusion — content is written to sheet first, then read back.",
+        "height": 200,
+        "width": 420,
+        "color": 4
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -528,
+        208
+      ],
+      "typeVersion": 1,
+      "id": "384e2885-ad13-485e-aee4-ab948fa55e66",
+      "name": "Note WF2"
+    },
+    {
+      "parameters": {
+        "content": " WORKFLOW 3: Image Generation + Final Approval\nTelegram listens for 'approve IMAGE_ID'.\nLooks up row by id → generates image → sends photo to Telegram.\nAdmin replies 'post IMAGE_ID' to trigger LinkedIn posting.\n\nKey fix: id is passed in the command itself, eliminating row tracking issues.",
+        "height": 200,
+        "width": 420,
+        "color": 5
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -528,
+        528
+      ],
+      "typeVersion": 1,
+      "id": "13176e40-9ec6-4493-8cfc-0675fa4090d4",
+      "name": "Note WF3"
+    },
+    {
+      "parameters": {
+        "content": " WORKFLOW 4: LinkedIn Auto-Post\nTelegram listens for 'post IMAGE_ID'.\nLooks up final approved content from sheet → posts to LinkedIn.\nUpdates status to 'posted'.\n\nIMPORTANT: Replace LinkedIn HTTP node with your OAuth2 credentials.\nLinkedIn API endpoint: https://api.linkedin.com/v2/ugcPosts",
+        "height": 200,
+        "width": 420,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -448,
+        880
+      ],
+      "typeVersion": 1,
+      "id": "5543f519-51d1-4481-a806-5ca864b3cca1",
+      "name": "Note WF4"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -32,
+        -80
+      ],
+      "id": "ea34b374-1a38-4f07-8b4e-56840f05fb73",
+      "name": "Daily 9am Trigger"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "You are a professional AI trend researcher and social media strategist for Dume AI — an AI-powered productivity and workflow automation platform."
+            },
+            {
+              "content": "Today's REAL trending posts from Reddit AI and startup communities:\n\n{{$json.headlines}}\n\nBased on these real trends above, generate 5 social media content topics for Dume AI — an AI-powered productivity and workflow automation platform.\n\nRules:\n- Topics must feel current and relevant to the real trends above\n- Reframe each trend to relate to Dume AI's features\n- Make them engaging for LinkedIn and Instagram audiences\n- Do NOT mention Reddit or use Reddit post titles directly\n\nReturn ONLY valid JSON with NO markdown fences:\n\n{\"topics\":[{\"id\":1,\"title\":\"\",\"description\":\"\"},{\"id\":2,\"title\":\"\",\"description\":\"\"},{\"id\":3,\"title\":\"\",\"description\":\"\"},{\"id\":4,\"title\":\"\",\"description\":\"\"},{\"id\":5,\"title\":\"\",\"description\":\"\"}]}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        528,
+        -80
+      ],
+      "id": "04479f01-64be-4cdc-b1d5-5c8d8cb9e5ca",
+      "name": "Generate Topics",
+      "credentials": {
+        "openAiApi": {
+          "id": "smIfgdP80qxqMIwR",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe JSON parse with markdown fence stripping\nconst raw = $json.output[0].content[0].text\n  .replace(/```json/gi, '')\n  .replace(/```/g, '')\n  .trim();\n\nlet parsed;\ntry {\n  parsed = JSON.parse(raw);\n} catch(e) {\n  throw new Error('JSON parse failed: ' + raw.substring(0, 200));\n}\n\nconst sessionId = 'S' + Date.now();\n\n// Return each topic as a separate item with a shared sessionId\nreturn parsed.topics.map(t => ({\n  json: {\n    id: sessionId + '_' + t.id,\n    session_id: sessionId,\n    topic_number: t.id,\n    title: t.title,\n    description: t.description,\n    status: 'topic_generated',\n    created_at: new Date().toISOString(),\n    image_generated: 'false'\n  }\n}));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        816,
+        -80
+      ],
+      "id": "bd5516eb-27d9-493a-bb0e-969e1353aae7",
+      "name": "Parse Topics + Assign IDs"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$json.id}}",
+            "topic": "={{$json.title}}",
+            "description": "={{$json.description}}",
+            "status": "={{$json.status}}",
+            "created_at": "={{$json.created_at}}",
+            "image_generated": "={{$json.image_generated}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_post",
+              "displayName": "linkedin_post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram_caption",
+              "displayName": "instagram_caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hashtags",
+              "displayName": "hashtags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_prompt",
+              "displayName": "image_prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_type",
+              "displayName": "image_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_generated",
+              "displayName": "image_generated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1008,
+        -80
+      ],
+      "id": "8c6bba12-ed01-45be-97c0-c67697b820d6",
+      "name": "Save Topics to Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const allItems = $input.all();\n\nconst topicLines = allItems.map(item => {\n  // After Sheets save, field is 'topic' not 'title'\n  // Extract number from id e.g. \"S1234567890_3\" → \"3\"\n  const num = item.json.id ? item.json.id.split('_')[1] : '?';\n  const title = item.json.topic || item.json.title || 'Unknown';\n  const desc = item.json.description || '';\n  \n  return `${num}. *${title}*\\n_${desc}_`;\n}).join('\\n\\n');\n\nconst message = `🔥 *Today's Trending AI Topics:*\\n\\n${topicLines}\\n\\n✅ Reply with topic number(s) to generate content.\\nExamples:\\n• Single: \\`1\\`\\n• Multiple: \\`1,3\\``;\n\nreturn [{ json: { message, items: allItems.map(i => i.json) } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1184,
+        -80
+      ],
+      "id": "46bdf4ee-1060-4c26-84e2-19941c7ce391",
+      "name": "Build Telegram Topic Menu"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHAT_ID",
+        "text": "={{$json.message}}",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1408,
+        -80
+      ],
+      "id": "2f17958b-b5f5-4b8a-9559-de15a27883ce",
+      "name": "Send Topics to Telegram",
+      "webhookId": "36a39eb8-6d13-42ef-8283-5acca38849c6",
+      "credentials": {
+        "telegramApi": {
+          "id": "Y2z6oJbgmyOM3c0K",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -32,
+        432
+      ],
+      "id": "6fe44c3e-584e-4ff8-a4f8-1720e5a706fc",
+      "name": "Telegram Trigger (All Messages)",
+      "webhookId": "f5579fc1-e35f-4dcd-bec7-23c04c235193",
+      "credentials": {
+        "telegramApi": {
+          "id": "Y2z6oJbgmyOM3c0K",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Route incoming Telegram messages by intent\n// Returns: { intent, payload, raw_text }\n\nconst text = ($json.message?.text || '').trim();\nconst lc = text.toLowerCase();\n\nlet intent = 'unknown';\nlet payload = {};\n\nif (/^\\d+(,\\d+)*$/.test(text)) {\n  // Topic selection: \"1\" or \"1,3\"\n  intent = 'topic_selection';\n  payload = { selected_ids: text.split(',').map(n => n.trim()) };\n} else if (/^approve\\s+\\S+/i.test(text)) {\n  // Content approval: \"approve S1234567890_1\"\n  intent = 'approve_content';\n  payload = { content_id: text.split(/\\s+/)[1] };\n} else if (/^post\\s+\\S+/i.test(text)) {\n  // Final post approval: \"post S1234567890_1\"\n  intent = 'post_to_linkedin';\n  payload = { content_id: text.split(/\\s+/)[1] };\n} else if (/^reject\\s+\\S+/i.test(text)) {\n  // Reject: \"reject S1234567890_1\"\n  intent = 'reject';\n  payload = { content_id: text.split(/\\s+/)[1] };\n}\n\nreturn [{ json: { intent, payload, raw_text: text, chat_id: $json.message?.chat?.id } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        432
+      ],
+      "id": "84d57eaa-1da4-467c-a7cd-2dd06919e43a",
+      "name": "Route by Intent"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "route-topic",
+              "leftValue": "={{$json.intent}}",
+              "rightValue": "topic_selection",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        288
+      ],
+      "id": "b2ee0bc9-596e-4708-a8cd-45f65708ad73",
+      "name": "Is Topic Selection?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": false,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "route-approve",
+              "leftValue": "={{$json.intent}}",
+              "rightValue": "approve_content",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        432,
+        560
+      ],
+      "id": "a441520d-734d-449e-ad07-c399f6ea7f47",
+      "name": "Is Approve Content?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "route-post",
+              "leftValue": "={{$json.intent}}",
+              "rightValue": "post_to_linkedin",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        416,
+        800
+      ],
+      "id": "d11251f4-64bd-42c5-ab3b-0eeefc23a899",
+      "name": "Is Post to LinkedIn?"
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "list",
+          "cachedResultName": "DUME AI Content PipeLine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        672,
+        272
+      ],
+      "id": "5f984ddf-04e9-4b40-a8b0-688bed502928",
+      "name": "Get All Topics from Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Match selected topic numbers to latest session rows in the sheet\n// Selected IDs are topic_numbers (1, 2, 3...) from today's session\n\nconst routeData = $('Route by Intent').first().json;\nconst selectedNumbers = routeData.payload.selected_ids; // e.g. ['1','3']\n\nconst allRows = $input.all();\n\n// Find most recent rows for today (get the latest session by created_at)\nconst rowsWithTopic = allRows.filter(r => r.json.status === 'topic_generated');\n\n// Get the latest session_id by sorting created_at descending\nconst sorted = [...rowsWithTopic].sort((a, b) =>\n  new Date(b.json.created_at) - new Date(a.json.created_at)\n);\n\n// Grab the session_id from the most recent topic\nconst latestSession = sorted[0]?.json?.id?.split('_')[0];\n\nif (!latestSession) throw new Error('No topic_generated rows found. Run Workflow 1 first.');\n\n// Filter to selected topic numbers from the latest session\nconst matched = rowsWithTopic.filter(r => {\n  const [session, num] = r.json.id.split('_');\n  return session === latestSession && selectedNumbers.includes(String(num));\n});\n\nif (matched.length === 0) throw new Error('No matching topics found for: ' + selectedNumbers.join(','));\n\nreturn matched.map(item => ({ json: item.json }));\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        272
+      ],
+      "id": "43da3bc5-2490-4f58-aa9b-3b3562c5224c",
+      "name": "Match Selected Topics"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4.1-MINI"
+        },
+        "responses": {
+          "values": [
+            {
+              "role": "system",
+              "content": "\nYou are a senior LinkedIn content strategist and visual content designer. \nYou create scroll-stopping educational content for SaaS and AI brands.\nYou always return ONLY valid JSON with no markdown, no preamble, no explanation.\nYour visuals teach concepts instantly using clean infographic styles.\nYou never generate futuristic, robotic, or sci-fi imagery."
+            },
+            {
+              "content": "=You are a senior LinkedIn content strategist and visual content designer for Dume AI — an AI-powered productivity and workflow automation platform.\n\nYour task is to generate content for this topic:\n\nTopic: {{$json.topic}}\nDescription: {{$json.description}}\n\n---\n\nGENERATE ALL 5 OF THESE:\n\n1. LINKEDIN POST\n- Hook in first line (make them stop scrolling)\n- 3-5 short paragraphs\n- Each paragraph max 2 lines\n- Add line breaks between paragraphs\n- End with a question or strong CTA\n- Professional but conversational tone\n- No buzzword fluff\n\n2. INSTAGRAM CAPTION\n- First line is the hook\n- 3-4 lines max\n- Punchy and direct\n- End with a CTA\n\n3. HASHTAGS\n- 12-15 hashtags\n- Mix of large (#AI) and niche (#WorkflowAutomation)\n- Always include: #DumeAI #AIAutomation\n- Format: #Tag1 #Tag2 #Tag3\n\n4. IMAGE TYPE\n- Pick the BEST format for this topic from this list:\n  * visual_analogy\n  * side_by_side_comparison\n  * process_diagram\n  * myth_vs_reality\n  * statistics_infographic\n  * story_illustration\n- Choose based on what teaches the concept fastest\n\n5. IMAGE PROMPT\n- STRICT RULES - NEVER include:\n  * Robots or humanoid AI figures\n  * Glowing neon or holographic interfaces\n  * Cyberpunk or sci-fi visuals\n  * Floating dashboards in space\n  * Blue neon light effects\n  * Generic \"AI brain\" imagery\n  * Futuristic cities\n\n- ALWAYS include:\n  * Clean flat design or minimal illustration style\n  * White or light grey background\n  * Bold readable labels in dark text\n  * High contrast layout\n  * Corporate professional quality\n  * Educational infographic style\n  * Suitable for LinkedIn single image post\n\n- Format by image type:\n  If visual_analogy: \"Flat design infographic. [Concept A] illustrated as [real world object A]. [Concept B] illustrated as [real world object B]. Clean labels. White background. Professional corporate style.\"\n  \n  If side_by_side_comparison: \"Split layout infographic. Left side: [Option A] with [3 key points]. Right side: [Option B] with [3 key points]. Clear dividing line. Bold headers. Flat design. White background.\"\n  \n  If process_diagram: \"Step-by-step flow diagram. [Step 1] arrow [Step 2] arrow [Step 3] arrow [Step 4]. Each step has an icon and short label. Clean linear layout. Flat design. White background.\"\n  \n  If myth_vs_reality: \"Two column layout. Left column header MYTH in red with [wrong belief]. Right column header REALITY in green with [true statement]. Bold typography. Clean flat design. White background.\"\n  \n  If statistics_infographic: \"Data visualization infographic. [Stat 1] as large bold number with label. [Stat 2] as bar or circle chart. [Stat 3] as icon with number. Professional clean layout. White background.\"\n  \n  If story_illustration: \"Before and after layout. Left side labeled BEFORE showing [pain point scene]. Right side labeled AFTER showing [solution scene]. Simple flat illustrations. Clean labels. White background.\"\n\n---\n\nIMPORTANT RULES:\n- Return ONLY valid JSON\n- No markdown fences\n- No preamble or explanation\n- All fields must be filled\n- image_prompt must be highly specific and detailed\n- Never be generic\n\nReturn this exact JSON format:\n{\"linkedin_post\":\"\",\"instagram_caption\":\"\",\"hashtags\":\"\",\"image_type\":\"\",\"image_prompt\":\"\"}\n\nIMPORTANT:\n\nFor every topic, first decide whether:\n\n- illustration\n- comparison\n- editorial graphic\n- magazine cover\n- isometric scene\n- storytelling visual\n\nwould communicate the idea better than an infographic.\n\nOnly use process diagrams if the topic literally explains a step-by-step process."
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1072,
+        272
+      ],
+      "id": "79f1e358-5a98-4614-8413-5fda0542ba4d",
+      "name": "Generate Content (per topic)",
+      "credentials": {
+        "openAiApi": {
+          "id": "smIfgdP80qxqMIwR",
+          "name": "OpenAI account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Safe parse content and merge with topic context\n// $json here is from Generate Content node output\n\nconst raw = $json.output[0].content[0].text\n  .replace(/```json/gi, '')\n  .replace(/```/g, '')\n  .trim();\n\nlet content;\ntry {\n  content = JSON.parse(raw);\n} catch(e) {\n  throw new Error('Content JSON parse failed: ' + raw.substring(0, 300));\n}\n\n// Merge with upstream topic data from Match Selected Topics\nconst topicData = $('Match Selected Topics').item.json;\n\nreturn [{\n  json: {\n    id: topicData.id,\n    topic: topicData.topic,\n    description: topicData.description,\n    linkedin_post: content.linkedin_post || '',\n    instagram_caption: content.instagram_caption || '',\n    hashtags: content.hashtags || '',\n    image_type: content.image_type || '',      // ADD THIS\n    image_prompt: content.image_prompt || '',\n    status: 'content_generated',\n    updated_at: new Date().toISOString()\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        272
+      ],
+      "id": "88b8e16b-e6a3-4ca4-81d1-05e19cba0c0e",
+      "name": "Parse & Merge Content"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "list",
+          "cachedResultName": "DUME AI Content PipeLine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_post",
+              "displayName": "linkedin_post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram_caption",
+              "displayName": "instagram_caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hashtags",
+              "displayName": "hashtags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_prompt",
+              "displayName": "image_prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_type",
+              "displayName": "image_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_generated",
+              "displayName": "image_generated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1648,
+        288
+      ],
+      "id": "386a66e7-914e-4de6-9078-ae81dee62d00",
+      "name": "Save Content to Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHAT_ID",
+        "text": "=📋 *CONTENT PREVIEW* — ID: `{{$json.id}}`\n\n📝 *LinkedIn:*\n{{$json.linkedin_post}}\n\n📸 *Instagram:*\n{{$json.instagram_caption}}\n\n🔥 *Hashtags:*\n{{$json.hashtags}}\n\n✅ To generate image, reply:\n`approve {{$json.id}}`\n\n❌ To reject, reply:\n`reject {{$json.id}}`",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1840,
+        288
+      ],
+      "id": "a8867b77-4e31-4d05-980b-7ad351f65df6",
+      "name": "Send Content Preview",
+      "webhookId": "4db3ff09-4659-4840-98f9-a627e94d1ee0",
+      "credentials": {
+        "telegramApi": {
+          "id": "Y2z6oJbgmyOM3c0K",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "list",
+          "cachedResultName": "DUME AI Content PipeLine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{$json.payload.content_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        656,
+        560
+      ],
+      "id": "4e44d2b6-5101-4c8d-a7b4-aad3dda3ff86",
+      "name": "Fetch Row by ID (Image)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate: ensure status is content_generated before proceeding\nconst rows = $input.all();\nconst row = rows[0]?.json;\n\nif (!row) throw new Error('Row not found for that ID.');\nif (row.status !== 'content_generated') {\n  throw new Error(`Cannot approve image: status is '${row.status}', expected 'content_generated'.`);\n}\nif (!row.image_prompt) throw new Error('No image_prompt found for this row.');\n\nreturn [{ json: row }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        576
+      ],
+      "id": "0a7574e1-11a5-4027-963b-63408b4d7e6f",
+      "name": "Validate Status for Image"
+    },
+    {
+      "parameters": {
+        "resource": "image",
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-image-1",
+          "mode": "list",
+          "cachedResultName": "GPT-IMAGE-1"
+        },
+        "prompt": "={{$json.image_prompt}}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        1312,
+        576
+      ],
+      "id": "f8727aba-fce6-4ea3-b956-521f0418f689",
+      "name": "Generate Image",
+      "alwaysOutputData": true,
+      "credentials": {
+        "openAiApi": {
+          "id": "Qg7jQ9izKduza5Jj",
+          "name": "OpenAI account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "list",
+          "cachedResultName": "DUME AI Content PipeLine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$('Store Content Data').item.json.content_id}}",
+            "status": "awaiting_image_approval",
+            "updated_at": "={{$now}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "topic",
+              "displayName": "topic",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "linkedin_post",
+              "displayName": "linkedin_post",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "instagram_caption",
+              "displayName": "instagram_caption",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "hashtags",
+              "displayName": "hashtags",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_prompt",
+              "displayName": "image_prompt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "created_at",
+              "displayName": "created_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "image_generated",
+              "displayName": "image_generated",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1760,
+        576
+      ],
+      "id": "5a0ceae1-7196-4395-89f9-f8eee3af408c",
+      "name": "Update Status: Awaiting Image Approval",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "sendPhoto",
+        "chatId": "YOUR_CHAT_ID",
+        "binaryData": true,
+        "additionalFields": {
+          "caption": "=🖼 IMAGE PREVIEW - Final Approval\n\n📸 INSTAGRAM CAPTION:\n{{$('Store Content Data').item.json.instagram_caption}}\n\n🔥 HASHTAGS:\n{{$('Store Content Data').item.json.hashtags}}\n\n--------------------\n✅ To post to LinkedIn reply:\npost {{$('Store Content Data').item.json.content_id}}\n\n❌ To reject reply:\nreject {{$('Store Content Data').item.json.content_id}}"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1536,
+        560
+      ],
+      "id": "97b55670-7d82-477d-bb63-c608aa22baa6",
+      "name": "Send Image Preview to Telegram",
+      "webhookId": "523f9feb-474f-4dda-92aa-a3e9ad116672",
+      "alwaysOutputData": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "Y2z6oJbgmyOM3c0K",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "documentId": {
+          "__rl": true,
+          "value": "1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts",
+          "mode": "list",
+          "cachedResultName": "DUME AI Content PipeLine",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1t58H0STVPgDVHyVm9R2CuQmADR0SRZuqMOwlRRSlwts/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{$json.payload.content_id}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        656,
+        800
+      ],
+      "id": "f6e46b64-68bd-40a5-b817-4b675c6b504b",
+      "name": "Fetch Row by ID (LinkedIn)",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Validate row is ready to post\nconst rows = $input.all();\nconst row = rows[0]?.json;\n\nif (!row) throw new Error('Row not found for that ID.');\nif (row.status !== 'awaiting_image_approval') {\n  throw new Error(`Cannot post: status is '${row.status}', expected 'awaiting_image_approval'.`);\n}\nif (!row.linkedin_post) throw new Error('No linkedin_post content found.');\n\nreturn [{ json: row }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        864,
+        800
+      ],
+      "id": "d09629c4-a977-4fbd-b8e2-bee0cc76ddec",
+      "name": "Validate Status for Posting"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.linkedin.com/v2/ugcPosts",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "oAuth2Api",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-Restli-Protocol-Version",
+              "value": "2.0.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "=",
+              "value": "={{\nJSON.stringify({\n  author: 'urn:li:person:YOUR_LINKEDIN_PERSON_ID',\n  lifecycleState: 'PUBLISHED',\n  specificContent: {\n    'com.linkedin.ugc.ShareContent': {\n      shareCommentary: { text: $json.linkedin_post },\n      shareMediaCategory: 'NONE'\n    }\n  },\n  visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }\n})\n}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1088,
+        800
+      ],
+      "id": "283bb8ff-5f1b-4423-aee8-87cd600996a8",
+      "name": "Post to LinkedIn API",
+      "disabled": true,
+      "notes": "⚠️ Set up LinkedIn OAuth2 credentials in n8n first.\nReplace YOUR_LINKEDIN_PERSON_ID with your actual LinkedIn URN.\nCredential type: OAuth2 API with LinkedIn scopes: w_member_social"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Sheet1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{$('Validate Status for Posting').item.json.id}}",
+            "status": "posted",
+            "updated_at": "={{$now}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "updated_at",
+              "displayName": "updated_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1312,
+        800
+      ],
+      "id": "7e00e5e8-949a-499e-9094-0cb1da67eebb",
+      "name": "Mark as Posted in Sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "TWR5SFThptqexlWL",
+          "name": "Google Sheets OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_CHAT_ID",
+        "text": "=✅ *POSTED TO LINKEDIN!*\n\nID: `{{$('Validate Status for Posting').item.json.id}}`\nTopic: {{$('Validate Status for Posting').item.json.topic}}\n\nYour post is now live on LinkedIn. 🚀",
+        "additionalFields": {
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1536,
+        800
+      ],
+      "id": "487df3a2-92e8-4fb1-a3c2-ee34dbf24d13",
+      "name": "Notify: Posted to LinkedIn",
+      "webhookId": "7a9a81fc-6958-4a85-afd1-dd069658719f",
+      "credentials": {
+        "telegramApi": {
+          "id": "Y2z6oJbgmyOM3c0K",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "34b0b4ff-50b3-4d9c-ad21-7a88a46cb2f5",
+              "name": "content_id",
+              "value": "={{$json.id}}",
+              "type": "string"
+            },
+            {
+              "id": "fd18697f-4409-4ff2-8c87-0aa811463112",
+              "name": "linkedin_post",
+              "value": "={{$json.linkedin_post.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, ' ')}}",
+              "type": "string"
+            },
+            {
+              "id": "82542ba6-601c-410c-9f46-631966a99e88",
+              "name": "instagram_caption",
+              "value": "={{$json.instagram_caption.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, ' ')}}",
+              "type": "string"
+            },
+            {
+              "id": "817ced04-d1e1-430a-9826-5612aca4ccdc",
+              "name": "hashtags",
+              "value": "={{$json.hashtags.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, ' ')}}",
+              "type": "string"
+            },
+            {
+              "id": "b4377500-eba0-4db9-876f-31606460aee1",
+              "name": "image_prompt",
+              "value": "={{$json.image_prompt}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1088,
+        576
+      ],
+      "id": "88f18f5b-ad37-4fe5-a850-7bc18e73a459",
+      "name": "Store Content Data"
+    },
+    {
+      "parameters": {
+        "url": "https://www.reddit.com/r/artificial+MachineLearning+SaaS+startups+entrepreneur/hot.json?limit=15&t=day",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-bot/1.0"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        -320
+      ],
+      "id": "ec08242e-70c1-4596-b393-85722cad4de7",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "const posts = $json.data?.children || [];\n\nconst headlines = posts\n  .filter(p => !p.data.stickied) // remove pinned mod posts\n  .slice(0, 10)\n  .map(p => ({\n    title: p.data.title,\n    subreddit: p.data.subreddit,\n    score: p.data.score\n  }));\n\nif (headlines.length === 0) {\n  throw new Error('No Reddit posts found. Check the URL or subreddits.');\n}\n\nconst headlineText = headlines\n  .map((h, i) => `${i + 1}. [r/${h.subreddit}] ${h.title}`)\n  .join('\\n');\n\nreturn [{ json: { headlines: headlineText } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        320,
+        -320
+      ],
+      "id": "71590331-dc55-45a3-ab45-e855a1fe0b0f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "url": "https://newsapi.org/v2/everything?q=AI+automation+SaaS+startup&sortBy=publishedAt&language=en&pageSize=5&apiKey=e84010b780f74dd3adf9b3fe05e1c25b",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        176,
+        -96
+      ],
+      "id": "2ace6f91-a24f-441e-8c43-a050df5a7c05",
+      "name": "HTTP Request1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const articles = $json.articles || [];\n\nconst headlines = articles\n  .slice(0, 5)\n  .map((a, i) => `${i + 1}. ${a.title} (${a.source.name})`)\n  .join('\\n');\n\nreturn [{ json: { headlines } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        352,
+        -96
+      ],
+      "id": "4216d4e2-cd6d-4cbf-8390-7440b8a0fd5e",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "content": "reddit api ",
+        "height": 80
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        176,
+        -432
+      ],
+      "typeVersion": 1,
+      "id": "ca33cc46-a0ee-4982-9df2-5ef57d9c60fc",
+      "name": "Sticky Note"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Daily 9am Trigger": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Topics": {
+      "main": [
+        [
+          {
+            "node": "Parse Topics + Assign IDs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Topics + Assign IDs": {
+      "main": [
+        [
+          {
+            "node": "Save Topics to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Topics to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Build Telegram Topic Menu",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Telegram Topic Menu": {
+      "main": [
+        [
+          {
+            "node": "Send Topics to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Telegram Trigger (All Messages)": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "Is Topic Selection?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Approve Content?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Post to LinkedIn?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Topic Selection?": {
+      "main": [
+        [
+          {
+            "node": "Get All Topics from Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get All Topics from Sheet": {
+      "main": [
+        [
+          {
+            "node": "Match Selected Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Match Selected Topics": {
+      "main": [
+        [
+          {
+            "node": "Generate Content (per topic)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Content (per topic)": {
+      "main": [
+        [
+          {
+            "node": "Parse & Merge Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Merge Content": {
+      "main": [
+        [
+          {
+            "node": "Save Content to Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Content to Sheet": {
+      "main": [
+        [
+          {
+            "node": "Send Content Preview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Approve Content?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Row by ID (Image)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Row by ID (Image)": {
+      "main": [
+        [
+          {
+            "node": "Validate Status for Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Status for Image": {
+      "main": [
+        [
+          {
+            "node": "Store Content Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Image": {
+      "main": [
+        [
+          {
+            "node": "Send Image Preview to Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Status: Awaiting Image Approval": {
+      "main": [
+        []
+      ]
+    },
+    "Is Post to LinkedIn?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Row by ID (LinkedIn)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Row by ID (LinkedIn)": {
+      "main": [
+        [
+          {
+            "node": "Validate Status for Posting",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Status for Posting": {
+      "main": [
+        [
+          {
+            "node": "Post to LinkedIn API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to LinkedIn API": {
+      "main": [
+        [
+          {
+            "node": "Mark as Posted in Sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Posted in Sheet": {
+      "main": [
+        [
+          {
+            "node": "Notify: Posted to LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Image Preview to Telegram": {
+      "main": [
+        [
+          {
+            "node": "Update Status: Awaiting Image Approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Content Data": {
+      "main": [
+        [
+          {
+            "node": "Generate Image",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Generate Topics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "9fcb7017-433f-405a-847a-8b4231013133",
+  "meta": {
+    "instanceId": "170d2fc7b22b82049abe45b0c24a763df4eec9d376110d257da9c6f80673dfce"
+  },
+  "id": "1Xhx2xvyRoTxvyY9",
+  "tags": []
+}
